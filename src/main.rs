@@ -86,7 +86,11 @@ impl World {
     fn new()-> Self {
         Self {
             stars: Stars3D::new(1f32, 100.0f32, 15000, 172f32),
-            scanline : Scanline::new([Point3::origin() ; 3], [na::zero() ; 3]),
+            scanline : Scanline::new([Point3::origin() ; 3], 
+            [Vector4::new(1., 0., 0., 1.),
+    Vector4::new(0., 1., 0., 1.),
+    Vector4::new(0., 0., 1., 1.)
+            ]),
             time : 0.0,
         }
     }
@@ -110,11 +114,11 @@ impl World {
         let mvp_ss_mat : Matrix4<f32> = 
             screen_space * (perspective.as_matrix() * model.to_homogeneous());
 
-        let a = mvp_ss_mat.transform_point(&Point3::new(-1.0, -1.0, 0.0)); 
-        let b = mvp_ss_mat.transform_point(&Point3::new(0.0, 1.0, 0.0)); 
-        let c = mvp_ss_mat.transform_point(&Point3::new(1.0, -1.0, 0.0)); 
+        let a = mvp_ss_mat.transform_point(&Point3::new(-1.1, -1.2, 0.0)); 
+        let b = mvp_ss_mat.transform_point(&Point3::new(0.0, 1.01, 0.0)); 
+        let c = mvp_ss_mat.transform_point(&Point3::new(1.0, -1.04, 0.0)); 
 
-        self.scanline.update_vertices([a, b, c]);
+        self.scanline = Scanline::new([c, a, b], self.scanline.color_vertices());
     }
 
     /// Draw the `World` state to the frame buffer.
