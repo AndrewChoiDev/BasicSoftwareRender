@@ -15,11 +15,15 @@ const WIDTH: u32 = 320;
 const HEIGHT: u32 = 240;
 use nalgebra as na;
 use na::*;
+use std::rc::Rc;
+mod edge;
+mod bitmap;
 /// Representation of the application state. In this example, a box will bounce around the screen.
 struct World {
    stars : Stars3D, 
    scanline : Scanline,
    time : f32,
+   texture : Rc<bitmap::Bitmap>,
 }
 
 fn main() -> Result<(), Error> {
@@ -84,17 +88,26 @@ const DEG_TO_RAD : f32 = std::f32::consts::PI / 180.0;
 impl World {
     /// Create a new `World` instance that can draw a moving box.
     fn new()-> Self {
+        let texture = Rc::new(bitmap::Bitmap::new_random([45, 45].into()));
         Self {
             stars: Stars3D::new(1f32, 100.0f32, 15000, 172f32),
-            scanline : Scanline::new([Point3::origin() ; 3], 
-            [Vector4::new(1., 0., 0., 1.),
-    Vector4::new(0., 1., 0., 1.),
-    Vector4::new(0., 0., 1., 1.)
-            ]),
+            scanline : Scanline::new(
+                [Point3::origin() ; 3], 
+                World::uvs(), 
+                texture.clone()),
             time : 0.0,
+            texture
         }
     }
 
+    fn uvs()
+    -> [Vector2<f32> ; 3] {
+        [  
+            Vector2::new(0.1, 0.1),
+            Vector2::new(0.9, 0.1),
+            Vector2::new(0.5, 0.9),
+        ]
+    }
     /// Update the `World` internal state; bounce the box around the screen.
     fn update(&mut self, dt : f32) {
         self.stars.update(dt);
@@ -103,22 +116,25 @@ impl World {
         let perspective = Perspective3::new(
         WIDTH as f32 / HEIGHT as f32, 110.0 * DEG_TO_RAD, 0.01, 200.0);
        
-        let tri_angle = self.time * 3.0;
+        let tri_angle = self.time * 1.1;
         let model = Isometry3::new(
-        Vector3::new(0.0, 0.5, 1.1), Vector3::y() * tri_angle);
+        Vector3::new(0.0, 0.5, 1.2), Vector3::y() * tri_angle);
 
-        let screen_space = 
+        let screen_space : Matrix4<f32> = 
             Matrix4::new_nonuniform_scaling(&Vector3::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0, 0.0))
             * Matrix4::new_translation(&Vector3::new(1.0, 1.0, 0.0));
 
         let mvp_ss_mat : Matrix4<f32> = 
             screen_space * (perspective.as_matrix() * model.to_homogeneous());
 
-        let a = mvp_ss_mat.transform_point(&Point3::new(-1.1, -1.2, 0.0)); 
-        let b = mvp_ss_mat.transform_point(&Point3::new(0.0, 1.01, 0.0)); 
-        let c = mvp_ss_mat.transform_point(&Point3::new(1.0, -1.04, 0.0)); 
+        let a : Point3<f32> = 
+            mvp_ss_mat.transform_point(&Point3::new(-1.1, -1.2, 0.0)); 
+        let b : Point3<f32> = 
+            mvp_ss_mat.transform_point(&Point3::new(0.0, 1.01, 0.0));
+        let c : Point3<f32> = 
+            mvp_ss_mat.transform_point(&Point3::new(1.0, -1.04, 0.0));
 
-        self.scanline = Scanline::new([c, a, b], self.scanline.color_vertices());
+        self.scanline = Scanline::new([c, a, b], World::uvs(), self.texture.clone());
     }
 
     /// Draw the `World` state to the frame buffer.
