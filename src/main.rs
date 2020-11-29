@@ -18,7 +18,8 @@ use na::*;
 use std::rc::Rc;
 mod edge;
 mod bitmap;
-/// Representation of the application state. In this example, a box will bounce around the screen.
+
+
 struct World {
    stars : Stars3D, 
    scanline : Scanline,
@@ -84,9 +85,7 @@ fn main() -> Result<(), Error> {
 
     });
 }
-const DEG_TO_RAD : f32 = std::f32::consts::PI / 180.0;
 impl World {
-    /// Create a new `World` instance that can draw a moving box.
     fn new()-> Self {
         let texture = Rc::new(bitmap::Bitmap::new_random([45, 45].into()));
         Self {
@@ -108,15 +107,13 @@ impl World {
             Vector2::new(0.5, 0.9),
         ]
     }
-    /// Update the `World` internal state; bounce the box around the screen.
-    fn update(&mut self, dt : f32) {
-        self.stars.update(dt);
-        self.time += dt;
+
+    fn vertices(tri_angle : f32) 
+    -> [Point3<f32> ; 3] {
 
         let perspective = Perspective3::new(
-        WIDTH as f32 / HEIGHT as f32, 110.0 * DEG_TO_RAD, 0.01, 200.0);
+        WIDTH as f32 / HEIGHT as f32, 110f32.to_radians(), 0.01, 200.0);
        
-        let tri_angle = self.time * 1.1;
         let model = Isometry3::new(
         Vector3::new(0.0, 0.5, 1.2), Vector3::y() * tri_angle);
 
@@ -134,19 +131,21 @@ impl World {
         let c : Point3<f32> = 
             mvp_ss_mat.transform_point(&Point3::new(1.0, -1.04, 0.0));
 
-        self.scanline = Scanline::new([c, a, b], World::uvs(), self.texture.clone());
-    }
+        [a, c, b]
 
-    /// Draw the `World` state to the frame buffer.
-    ///
-    /// Assumes the default texture format: [`wgpu::TextureFormat::Rgba8UnormSrgb`]
+    }
+    
+    /// Update the `World` internal state; bounce the box around the screen.
+    fn update(&mut self, dt : f32) {
+        self.stars.update(dt);
+        self.time += dt;
+
+        let tri_angle = self.time * 1.1;
+        self.scanline = Scanline::new(World::vertices(tri_angle), World::uvs(), self.texture.clone());
+}
+
+    
     fn draw(&mut self, context : &mut dyn Renderable) {
-        // for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-        //     let rgba = [0x00, 0x00, 0x00, 0xff];
-            
-        //     pixel.copy_from_slice(&rgba);
-        // }
-        // self.stars.render(frame, WIDTH as usize, HEIGHT as usize);
         
         for x in 0..WIDTH {
             for y in 0..HEIGHT {

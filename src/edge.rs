@@ -2,11 +2,11 @@ type Vertex = Point3<f32>;
 use nalgebra::*;
 type UV = Vector2<f32>;
 pub struct Edge {
-    pub x : f32,
+    x : f32,
     dx_over_dy : f32,
-    pub y_start : usize,
-    pub y_end : usize,
-    pub uv : UV,
+    y_start : usize,
+    y_end : usize,
+    uv : UV,
     uv_step : UV,
 }
 

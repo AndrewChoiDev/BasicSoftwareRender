@@ -16,46 +16,51 @@ pub fn xy_cross_product_magnitude(v1 : Vect, v2 : Vect)
 }
 type UV = Vector2<f32>;
 pub struct Scanline {
-    vertices : [Vertex ; 3], 
-    uvs : [UV ; 3],
+    ordered_vertices : Vec<Vertex>, 
+    ordered_uvs : Vec<UV>,
     gradient : Vector2<UV>,
     texture : Rc<Bitmap>
 }
 
 impl Scanline {
-
     
-    pub fn new(vertices : [Vertex ; 3], uvs : [UV ; 3], texture : Rc<Bitmap>) -> Scanline {
+    pub fn new(unordered_vertices : [Vertex ; 3], unordered_uvs : [UV ; 3], texture : Rc<Bitmap>) -> Scanline {
     
+        // sort indices to positional vertices by y value ascending
         let indices : Vec<usize> = {
             let mut v : Vec<usize> = (0..3).collect(); 
-            v.sort_by(|&ia, &ib| vertices[ia].y.partial_cmp(&vertices[ib].y).unwrap()); 
+            v.sort_by(|&ia, &ib| 
+                unordered_vertices[ia].y.partial_cmp(&unordered_vertices[ib].y).unwrap()); 
             v
         };
-        let ovs : Vec<Vertex> = indices.iter().map(|&i| vertices[i]).collect();
-        let ocvs : Vec<UV> = indices.iter().map(|&i| uvs[i]).collect();
-        let vv = [ocvs[0], ocvs[1], ocvs[2]];
-        let vp = [ovs[0], ovs[1], ovs[2]];
 
-        let gradient : _ = Scanline::gradient_of_triangle(vp, vv).into();
-        Scanline {vertices, uvs, gradient, texture}
+        //ordered vertices and ordered vertex values
+        let ovs : Vec<Vertex> = indices.iter().map(|&i| unordered_vertices[i]).collect();
+        let ovvs : Vec<UV> = indices.iter().map(|&i| unordered_uvs[i]).collect();
+
+        let gradient : _ = 
+            Scanline::gradient_of_triangle(&ovs[0..3], &ovvs[0..3]).into();
+
+        Scanline {ordered_vertices : ovs, ordered_uvs : ovvs, gradient, texture}
     }
 
 
     fn gradient_of_triangle<U : Dim + DimName>(
-        vertex_positions : [Vertex ; 3], 
-        vertex_vectors : [VectorN<f32, U> ; 3])
+        vertex_positions : &[Vertex], 
+        vertex_vectors : &[VectorN<f32, U>])
     -> [VectorN<f32, U> ; 2] 
-    where DefaultAllocator : nalgebra::allocator::Allocator<f32, U>
+    where 
+        DefaultAllocator : nalgebra::allocator::Allocator<f32, U>,
+        VectorN<f32, U> : Copy
     {
         let vp = vertex_positions;
         let vv = vertex_vectors;
         let dc_over_dx_numerator= 
-            (vv[1].clone() - vv[2].clone()) * (vp[0].y - vp[2].y) 
-            - (vv[0].clone() - vv[2].clone()) * (vp[1].y - vp[2].y);
+            (vv[1] - vv[2]) * (vp[0].y - vp[2].y) 
+            - (vv[0] - vv[2]) * (vp[1].y - vp[2].y);
         let dc_over_dy_numerator : VectorN<f32, U> = 
-            (vv[1].clone() - vv[2].clone()) * (vp[0].x - vp[2].x) 
-            - (vv[0].clone() - vv[2].clone()) * (vp[1].x - vp[2].x);
+            (vv[1] - vv[2]) * (vp[0].x - vp[2].x) 
+            - (vv[0] - vv[2]) * (vp[1].x - vp[2].x);
         let dc_over_dx_denominator = 1.0 / 
             ((vp[1].x - vp[2].x) * (vp[0].y - vp[2].y) 
             - (vp[0].x - vp[2].x) * (vp[1].y - vp[2].y));
@@ -70,29 +75,21 @@ impl Scanline {
 
     }
     
-    pub fn scan_convert_triangle(&self, context : &mut dyn Renderable, min_y_vert : Vertex, 
-        mid_y_vert : Vertex, max_y_vert : Vertex, handedness : bool) {
-       let y_min = min_y_vert.y.ceil() as usize;
-       let y_max = (max_y_vert.y.ceil() as usize).min(context.height() as usize);
+    fn scan_convert_triangle(&self, context : &mut dyn Renderable, handedness : bool) {
+       let y_min = self.ordered_vertices[0].y.ceil() as usize;
+       let y_max = (self.ordered_vertices[2].y.ceil() as usize).min(context.height() as usize);
                 
-        let indices : Vec<usize> = {
-            let mut v : Vec<usize> = (0..3).collect(); 
-            v.sort_by(|&ia, &ib| self.vertices[ia].y.partial_cmp(&self.vertices[ib].y).unwrap()); 
-            v
-        };
-        let ocvs : Vec<UV> = indices.iter().map(|&i| self.uvs[i]).collect();
-
-       let mut top_to_bottom = Edge::new(min_y_vert, max_y_vert, 
+       let mut top_to_bottom = Edge::new(self.ordered_vertices[0], self.ordered_vertices[2], 
         y_min as i32, y_max as i32,
-        ocvs[0], self.gradient);
+        self.ordered_uvs[0], self.gradient);
 
-       let mut top_to_middle = Edge::new(min_y_vert, mid_y_vert, 
+       let mut top_to_middle = Edge::new(self.ordered_vertices[0], self.ordered_vertices[1], 
         y_min as i32, y_max as i32,
-        ocvs[0], self.gradient);
+        self.ordered_uvs[0], self.gradient);
 
-       let mut middle_to_bottom = Edge::new(mid_y_vert, max_y_vert, 
+       let mut middle_to_bottom = Edge::new(self.ordered_vertices[1], self.ordered_vertices[2], 
         y_min as i32, y_max as i32,
-        ocvs[1], self.gradient);
+        self.ordered_uvs[1], self.gradient);
 
         self.scan_convert_edge_pair(context, &mut top_to_bottom, &mut top_to_middle, handedness);
         self.scan_convert_edge_pair(context, &mut top_to_bottom, &mut middle_to_bottom, handedness);
@@ -101,7 +98,7 @@ impl Scanline {
     fn scan_convert_edge_pair(&self, context : &mut dyn Renderable, a : &mut Edge, b : &mut Edge, 
         handedness : bool) {            
                  
-        let (y_start, y_end) = (b.y_start, b.y_end);
+        let (y_start, y_end) = (b.y_start(), b.y_end());
 
         let (left, right) = 
             if handedness {(b, a)} 
@@ -116,10 +113,10 @@ impl Scanline {
     }
 
     fn draw_scan_line(&self, context : &mut dyn Renderable, left : &Edge, right : &Edge, j : usize) {
-        let (x_min, x_max) = (left.x.ceil() as usize, right.x.ceil() as usize);
+        let (x_min, x_max) = (left.x().ceil() as usize, right.x().ceil() as usize);
         
-        let min_uv = left.uv;
-        let max_uv = right.uv;
+        let min_uv = left.uv();
+        let max_uv = right.uv();
 
         let mut lerp_value = 0.;
         let lerp_step = 1. / (x_max - x_min) as f32;
@@ -147,11 +144,12 @@ use rs::RenderSystem;
 use rs::Renderable;
 impl RenderSystem for Scanline {
     fn render(&self, context : &mut dyn Renderable) {
-        let mut ovs = self.vertices.to_vec();
-        ovs.sort_by(|va, vb| va.y.partial_cmp(&vb.y).unwrap());
-        let signed_area = triangle_signed_area(ovs[0], ovs[2], ovs[1]);
+        
+        let signed_area = triangle_signed_area(self.ordered_vertices[0],
+             self.ordered_vertices[2], self.ordered_vertices[1]);
 
         let handedness = signed_area >= 0f32;
-        self.scan_convert_triangle(context, ovs[0], ovs[1], ovs[2], handedness);   
+
+        self.scan_convert_triangle(context, handedness);   
     }
 }
