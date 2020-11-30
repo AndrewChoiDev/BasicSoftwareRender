@@ -5,8 +5,6 @@ use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
-mod stars_3D;
-use stars_3D::Stars3D;
 mod scanline;
 use scanline::{Scanline};
 mod render_system;
@@ -21,7 +19,6 @@ mod bitmap;
 
 
 struct World {
-   stars : Stars3D, 
    scanline : Scanline,
    time : f32,
    texture : Rc<bitmap::Bitmap>,
@@ -85,15 +82,15 @@ fn main() -> Result<(), Error> {
 
     });
 }
+
+
 impl World {
     fn new()-> Self {
         let texture = Rc::new(bitmap::Bitmap::new_random([45, 45].into()));
         Self {
-            stars: Stars3D::new(1f32, 100.0f32, 15000, 172f32),
             scanline : Scanline::new(
-                [Point3::origin() ; 3], 
-                World::uvs(), 
-                texture.clone()),
+                [WIDTH as usize, HEIGHT as usize], &[Point3::origin() ; 3], 
+                &World::uvs(), texture.clone(), 0.),
             time : 0.0,
             texture
         }
@@ -103,46 +100,32 @@ impl World {
     -> [Vector2<f32> ; 3] {
         [  
             Vector2::new(0.1, 0.1),
-            Vector2::new(0.9, 0.1),
             Vector2::new(0.5, 0.9),
+            Vector2::new(0.9, 0.1),
         ]
     }
 
-    fn vertices(tri_angle : f32) 
+    fn vertices() 
     -> [Point3<f32> ; 3] {
 
-        let perspective = Perspective3::new(
-        WIDTH as f32 / HEIGHT as f32, 110f32.to_radians(), 0.01, 200.0);
-       
-        let model = Isometry3::new(
-        Vector3::new(0.0, 0.5, 1.2), Vector3::y() * tri_angle);
-
-        let screen_space : Matrix4<f32> = 
-            Matrix4::new_nonuniform_scaling(&Vector3::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0, 0.0))
-            * Matrix4::new_translation(&Vector3::new(1.0, 1.0, 0.0));
-
-        let mvp_ss_mat : Matrix4<f32> = 
-            screen_space * (perspective.as_matrix() * model.to_homogeneous());
-
-        let a : Point3<f32> = 
-            mvp_ss_mat.transform_point(&Point3::new(-1.1, -1.2, 0.0)); 
-        let b : Point3<f32> = 
-            mvp_ss_mat.transform_point(&Point3::new(0.0, 1.01, 0.0));
-        let c : Point3<f32> = 
-            mvp_ss_mat.transform_point(&Point3::new(1.0, -1.04, 0.0));
-
-        [a, c, b]
-
+        [
+            Point3::new(-1.1, -1.2, 0.0), 
+            Point3::new(0.0, 1.01, 0.0), 
+            Point3::new(1.0, -1.04, 0.0)
+        ]
     }
     
     /// Update the `World` internal state; bounce the box around the screen.
     fn update(&mut self, dt : f32) {
-        self.stars.update(dt);
         self.time += dt;
 
         let tri_angle = self.time * 1.1;
-        self.scanline = Scanline::new(World::vertices(tri_angle), World::uvs(), self.texture.clone());
-}
+        self.scanline = 
+            Scanline::new(
+                [WIDTH as usize, HEIGHT as usize], 
+                &World::vertices(), &World::uvs(), 
+                self.texture.clone(), tri_angle);
+    }
 
     
     fn draw(&mut self, context : &mut dyn Renderable) {

@@ -2,94 +2,131 @@ use nalgebra::*;
 use super::edge::Edge;
 use super::bitmap::*;
 use std::rc::Rc;
-type Vertex = Point3<f32>;
+type Vertex = Vector4<f32>;
 type Vect = Vector3<f32>;
-type VertexColor = Vector4<f32>;
-pub fn triangle_signed_area(v_min_y : Vertex, v_max_y : Vertex, v_mid_y : Vertex) 
+
+pub fn triangle_signed_area(v_min_y : Vector3<f32>, v_max_y : Vector3<f32>, v_mid_y : Vector3<f32>) 
 -> f32 {
     xy_cross_product_magnitude(v_min_y - v_max_y, v_min_y - v_mid_y)
 }
+pub fn new_vertex(position : &Point3<f32>)
+-> Vertex {
+    let p = position;
 
+    Vector4::new(p.x, p.y, p.z, 1.)
+}
 pub fn xy_cross_product_magnitude(v1 : Vect, v2 : Vect) 
 -> f32 {
     (v1.x * v2.y - v2.x * v1.y) * 0.5f32
 }
 type UV = Vector2<f32>;
 pub struct Scanline {
-    ordered_vertices : Vec<Vertex>, 
-    ordered_uvs : Vec<UV>,
-    gradient : Vector2<UV>,
-    texture : Rc<Bitmap>
+    vertices : Vec<Vertex>, 
+    uvs : Vec<UV>,
+    texture : Rc<Bitmap>,
+    transform_matrix : Matrix4<f32>
 }
 
 impl Scanline {
     
-    pub fn new(unordered_vertices : [Vertex ; 3], unordered_uvs : [UV ; 3], texture : Rc<Bitmap>) -> Scanline {
+    pub fn new(
+        dimensions : [usize ; 2], positions : &[Point3<f32>], vertex_uvs : &[UV], 
+        texture : Rc<Bitmap>, model_angle : f32) 
+    -> Scanline {
     
-        // sort indices to positional vertices by y value ascending
+        let vertices = 
+            positions.iter()
+            .map(|p| new_vertex(p)).collect();
+
+        let uvs = 
+            vertex_uvs.iter()
+            .map(|uv| uv.clone()).collect();
+
+        let transform_matrix = 
+            Scanline::construct_transform_matrix(dimensions, model_angle);
+
+        Scanline {vertices, uvs, texture, transform_matrix}
+    }
+
+
+    
+    
+    fn construct_transform_matrix(dimensions : [usize ; 2], model_angle : f32) 
+    -> Matrix4<f32> {
+        let screen_space : Matrix4<f32> = 
+            Matrix4::new_nonuniform_scaling(
+                &Vector3::new(dimensions[0] as f32 / 2.0, dimensions[1] as f32 / 2.0, 0.0))
+            * Matrix4::new_translation(&Vector3::new(1.0, 1.0, 0.0));
+
+        let model = Isometry3::new(
+        Vector3::new(0.0, 0.1, 1.5), Vector3::y() * model_angle);
+
+        let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
+
+        let perspective_matrix = 
+            Matrix::new_perspective(
+                aspect_ratio, 110f32.to_radians(),
+                0.01, 200.0
+            );
+
+        screen_space * (perspective_matrix * model.to_homogeneous())
+    }
+
+    fn transformed_vertices(&self)
+    -> Vec<Vector4<f32>> {
+        self.vertices.iter()
+        .map(
+            |v| {
+
+                let transformed_vertex = self.transform_matrix * v;
+
+
+                let mut perspective_divided_vertex : _ = transformed_vertex / transformed_vertex[3];
+                perspective_divided_vertex[3] = transformed_vertex[3]; // save w component for later
+                perspective_divided_vertex
+            }
+        )
+        .collect()
+    }
+
+    fn scan_convert_triangle(&self, context : &mut dyn Renderable) {
+
+        let trans_verts = self.transformed_vertices();
+
+        // sort indices to transformed vertices by y value ascending
         let indices : Vec<usize> = {
             let mut v : Vec<usize> = (0..3).collect(); 
             v.sort_by(|&ia, &ib| 
-                unordered_vertices[ia].y.partial_cmp(&unordered_vertices[ib].y).unwrap()); 
+                trans_verts[ia].y.partial_cmp(&trans_verts[ib].y).unwrap()); 
             v
         };
 
         //ordered vertices and ordered vertex values
-        let ovs : Vec<Vertex> = indices.iter().map(|&i| unordered_vertices[i]).collect();
-        let ovvs : Vec<UV> = indices.iter().map(|&i| unordered_uvs[i]).collect();
+        let ovs : Vec<Vertex> = indices.iter().map(|&i| trans_verts[i]).collect();
+        let ovvs : Vec<UV> = indices.iter().map(|&i| self.uvs[i]).collect();
 
-        let gradient : _ = 
-            Scanline::gradient_of_triangle(&ovs[0..3], &ovvs[0..3]).into();
+        let handedness = 
+            triangle_signed_area(
+                ovs[0].xyz(), ovs[2].xyz(), ovs[1].xyz()) 
+            >= 0f32;
 
-        Scanline {ordered_vertices : ovs, ordered_uvs : ovvs, gradient, texture}
-    }
+        let y_min = ovs[0].y.ceil() as usize;
+        let y_max = (ovs[2].y.ceil() as usize).min(context.height() as usize);
 
+        let mut top_to_bottom = 
+            Edge::new(
+                &ovs, 0, 2, 
+                y_min as i32, y_max as i32, &ovvs);
 
-    fn gradient_of_triangle<U : Dim + DimName>(
-        vertex_positions : &[Vertex], 
-        vertex_vectors : &[VectorN<f32, U>])
-    -> [VectorN<f32, U> ; 2] 
-    where 
-        DefaultAllocator : nalgebra::allocator::Allocator<f32, U>,
-        VectorN<f32, U> : Copy
-    {
-        let vp = vertex_positions;
-        let vv = vertex_vectors;
-        let dc_over_dx_numerator= 
-            (vv[1] - vv[2]) * (vp[0].y - vp[2].y) 
-            - (vv[0] - vv[2]) * (vp[1].y - vp[2].y);
-        let dc_over_dy_numerator : VectorN<f32, U> = 
-            (vv[1] - vv[2]) * (vp[0].x - vp[2].x) 
-            - (vv[0] - vv[2]) * (vp[1].x - vp[2].x);
-        let dc_over_dx_denominator = 1.0 / 
-            ((vp[1].x - vp[2].x) * (vp[0].y - vp[2].y) 
-            - (vp[0].x - vp[2].x) * (vp[1].y - vp[2].y));
+        let mut top_to_middle = 
+            Edge::new(
+                &ovs, 0, 1, 
+                y_min as i32, y_max as i32, &ovvs);
 
-        let dc_over_dy_denominator = -dc_over_dx_denominator;
-
-        [
-            dc_over_dx_numerator * dc_over_dx_denominator,
-            dc_over_dy_numerator * dc_over_dy_denominator
-        ]
-
-
-    }
-    
-    fn scan_convert_triangle(&self, context : &mut dyn Renderable, handedness : bool) {
-       let y_min = self.ordered_vertices[0].y.ceil() as usize;
-       let y_max = (self.ordered_vertices[2].y.ceil() as usize).min(context.height() as usize);
-                
-       let mut top_to_bottom = Edge::new(self.ordered_vertices[0], self.ordered_vertices[2], 
-        y_min as i32, y_max as i32,
-        self.ordered_uvs[0], self.gradient);
-
-       let mut top_to_middle = Edge::new(self.ordered_vertices[0], self.ordered_vertices[1], 
-        y_min as i32, y_max as i32,
-        self.ordered_uvs[0], self.gradient);
-
-       let mut middle_to_bottom = Edge::new(self.ordered_vertices[1], self.ordered_vertices[2], 
-        y_min as i32, y_max as i32,
-        self.ordered_uvs[1], self.gradient);
+        let mut middle_to_bottom = 
+            Edge::new(
+                &ovs, 1, 2, 
+                y_min as i32, y_max as i32, &ovvs);
 
         self.scan_convert_edge_pair(context, &mut top_to_bottom, &mut top_to_middle, handedness);
         self.scan_convert_edge_pair(context, &mut top_to_bottom, &mut middle_to_bottom, handedness);
@@ -118,20 +155,27 @@ impl Scanline {
         let min_uv = left.uv();
         let max_uv = right.uv();
 
-        let mut lerp_value = 0.;
-        let lerp_step = 1. / (x_max - x_min) as f32;
+        let min_inverse_w = left.inverse_w();
+        let max_inverse_w = right.inverse_w();
 
         let uv_delta = max_uv - min_uv;
+        
+        let inverse_w_delta = max_inverse_w - min_inverse_w;
+
+        let x_delta_float = (x_max - x_min) as f32;
 
         for i in x_min..x_max {
 
+            let lerp_value = (i - x_min) as f32 / x_delta_float;
+
             let uv = min_uv + lerp_value * uv_delta;
 
-            let color_bytes = self.texture.get_pixel(uv);
-            // let color_bytes = color.map(|c| (c * 255f32 + 0.5f32) as u8).into();                
+            let z = 1. / (min_inverse_w + lerp_value * inverse_w_delta);
+
+            let color_bytes = self.texture.get_pixel(uv * z);
+
             context.plot(color_bytes, i, j);
 
-            lerp_value += lerp_step;
         }
     }
     
@@ -144,12 +188,6 @@ use rs::RenderSystem;
 use rs::Renderable;
 impl RenderSystem for Scanline {
     fn render(&self, context : &mut dyn Renderable) {
-        
-        let signed_area = triangle_signed_area(self.ordered_vertices[0],
-             self.ordered_vertices[2], self.ordered_vertices[1]);
-
-        let handedness = signed_area >= 0f32;
-
-        self.scan_convert_triangle(context, handedness);   
+        self.scan_convert_triangle(context);   
     }
 }
