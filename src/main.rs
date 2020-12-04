@@ -9,19 +9,20 @@ mod scanline;
 use scanline::{Scanline};
 mod render_system;
 use render_system::{Renderable, RenderSystem};
-const WIDTH: u32 = 320;
+const WIDTH: u32 = 360;
 const HEIGHT: u32 = 240;
 use nalgebra as na;
 use na::*;
 use std::rc::Rc;
 mod edge;
 mod bitmap;
-
-
+mod interpolant;
+mod mesh_loader;
 struct World {
    scanline : Scanline,
    time : f32,
    texture : Rc<bitmap::Bitmap>,
+   mesh : Rc<mesh_loader::Mesh>,
 }
 
 fn main() -> Result<(), Error> {
@@ -86,35 +87,20 @@ fn main() -> Result<(), Error> {
 
 impl World {
     fn new()-> Self {
-        let texture = Rc::new(bitmap::Bitmap::new_random([45, 45].into()));
+        let texture = Rc::new(bitmap::Bitmap::new_random([20, 20].into()));
+        let mesh = Rc::new(
+            mesh_loader::Mesh::new("resources/monkey/monkey.obj")
+        );
         Self {
             scanline : Scanline::new(
-                [WIDTH as usize, HEIGHT as usize], &[Point3::origin() ; 3], 
-                &World::uvs(), texture.clone(), 0.),
+                [WIDTH as usize, HEIGHT as usize], 
+                mesh.clone(), texture.clone(), 0.),
             time : 0.0,
-            texture
+            texture,
+            mesh,
         }
     }
 
-    fn uvs()
-    -> [Vector2<f32> ; 3] {
-        [  
-            Vector2::new(0.1, 0.1),
-            Vector2::new(0.5, 0.9),
-            Vector2::new(0.9, 0.1),
-        ]
-    }
-
-    fn vertices() 
-    -> [Point3<f32> ; 3] {
-
-        [
-            Point3::new(-1.1, -1.2, 0.0), 
-            Point3::new(0.0, 1.01, 0.0), 
-            Point3::new(1.0, -1.04, 0.0)
-        ]
-    }
-    
     /// Update the `World` internal state; bounce the box around the screen.
     fn update(&mut self, dt : f32) {
         self.time += dt;
@@ -123,7 +109,7 @@ impl World {
         self.scanline = 
             Scanline::new(
                 [WIDTH as usize, HEIGHT as usize], 
-                &World::vertices(), &World::uvs(), 
+                self.mesh.clone(),
                 self.texture.clone(), tri_angle);
     }
 
