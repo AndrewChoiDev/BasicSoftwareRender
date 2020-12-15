@@ -89,7 +89,7 @@ impl World {
     fn new()-> Self {
         let texture = Rc::new(bitmap::Bitmap::new_random([20, 20].into()));
         let mesh = Rc::new(
-            mesh_loader::Mesh::new("resources/monkey/monkey.obj")
+            mesh_loader::Mesh::new("resources/teapot/teapot.obj")
         );
         Self {
             scanline : Scanline::new(

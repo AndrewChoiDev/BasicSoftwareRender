@@ -28,8 +28,8 @@ impl Bitmap {
     
     fn uv_to_usize(&self, uv : UV)
     -> Vector2<usize> {
-        [(uv.x * (self.dims.x - 1) as f32).round() as usize,
-        (uv.y * (self.dims.y - 1) as f32).round() as usize].into()
+        [(uv.x * 0.5 * (self.dims.x - 1) as f32).round() as usize,
+        (uv.y * 0.5 * (self.dims.y - 1) as f32).round() as usize].into()
     }
     pub fn get_pixel(&self, uv : UV) 
     -> [u8 ; 4] {

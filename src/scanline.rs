@@ -205,7 +205,7 @@ fn construct_transform_matrix(dimensions : [usize ; 2], model_angle : f32)
         * Matrix4::new_translation(&Vector3::new(1.0, 1.0, 0.0));
 
     let model = Isometry3::new(
-        Vector3::new(0.0, 0.1, 35.5),
+        Vector3::new(0.0, 0.1, 25.5),
         Vector3::repeat(1.).normalize() * model_angle);
 
     let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
